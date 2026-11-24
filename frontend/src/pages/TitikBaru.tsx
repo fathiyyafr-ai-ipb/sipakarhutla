@@ -1,9 +1,34 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Crosshair, Loader2, MapPin, Sparkles } from 'lucide-react'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { useApi } from '../hooks'
-import type { Insiden, SceneArea, TitikBaruHasil } from '../types'
+import type { Insiden, SceneArea, TitikBaruHasil, TitikDuplikatDetail } from '../types'
+
+const NAMA_MIN = 3
+const NAMA_MAKS = 120
+
+/** Sama dengan validator backend: pangkas dan rapikan spasi ganda. */
+const rapikanNama = (s: string) => s.trim().replace(/\s+/g, ' ')
+
+function adalahDuplikat(detail: unknown): detail is TitikDuplikatDetail {
+  return (
+    typeof detail === 'object' &&
+    detail !== null &&
+    (detail as { kode?: unknown }).kode === 'titik_duplikat'
+  )
+}
+
+function pesanGalat(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 409 && adalahDuplikat(err.detail)) {
+      const jarak = err.detail.jarak_m.toLocaleString('id-ID', { maximumFractionDigits: 1 })
+      return `Titik ini berdekatan (± ${jarak} m) dengan titik ${err.detail.titik_ada} yang sudah ada.`
+    }
+    if (err.status === 422) return 'Periksa kembali isian: nama lokasi minimal 3 karakter.'
+  }
+  return err instanceof Error ? err.message : 'Gagal menambahkan titik.'
+}
 import {
   ErrorState,
   KelasBadge,
@@ -30,6 +55,16 @@ export default function TitikBaru() {
   const [busy, setBusy] = useState(false)
   const [pesan, setPesan] = useState('')
   const [hasil, setHasil] = useState<TitikBaruHasil | null>(null)
+  const [namaDisentuh, setNamaDisentuh] = useState(false)
+
+  const namaRapi = rapikanNama(nama)
+  const namaValid = namaRapi.length >= NAMA_MIN && namaRapi.length <= NAMA_MAKS
+  const galatNama =
+    namaDisentuh && !namaValid
+      ? namaRapi.length === 0
+        ? 'Nama lokasi wajib diisi.'
+        : `Nama lokasi minimal ${NAMA_MIN} karakter.`
+      : ''
 
   if (loadingArea) return <Loader label="Memuat area citra…" />
   if (errorArea || !area) return <ErrorState message={errorArea ?? 'Area tidak tersedia.'} onRetry={reload} />
@@ -47,6 +82,8 @@ export default function TitikBaru() {
     e.preventDefault()
     setPesan('')
     setHasil(null)
+    setNamaDisentuh(true)
+    if (!namaValid) return
     const latN = Number(lat)
     const lonN = Number(lon)
     if (!Number.isFinite(latN) || !Number.isFinite(lonN)) {
@@ -58,7 +95,7 @@ export default function TitikBaru() {
       const res = await api<TitikBaruHasil>('/api/titik', {
         method: 'POST',
         body: JSON.stringify({
-          nama: nama.trim(),
+          nama: namaRapi,
           lat: latN,
           lon: lonN,
           insiden_id: insiden ?? null,
@@ -67,7 +104,7 @@ export default function TitikBaru() {
       })
       setHasil(res)
     } catch (err) {
-      setPesan(err instanceof Error ? err.message : 'Gagal menambahkan titik.')
+      setPesan(pesanGalat(err))
     } finally {
       setBusy(false)
     }
@@ -78,7 +115,7 @@ export default function TitikBaru() {
       <>
         <PageHeader
           eyebrow="Titik berhasil ditambahkan"
-          title={`${hasil.kode} sudah diklasifikasi`}
+          title={`${hasil.kode} · ${hasil.nama} sudah diklasifikasi`}
           description="Patch citra di sekitar koordinat sudah diambil dan dinilai model. Lanjutkan ke halaman hasil untuk melihat probabilitas lengkap."
         />
         <div className="card success-card">
@@ -134,15 +171,25 @@ export default function TitikBaru() {
           </div>
 
           <label className="field">
-            <span>Nama titik</span>
+            <span>
+              Nama lokasi (desa/kecamatan)
+              <span className="field-wajib" aria-hidden="true">*</span>
+            </span>
             <input
               value={nama}
               onChange={(e) => setNama(e.target.value)}
-              placeholder="Contoh: Titik pantau desa sungai"
-              minLength={3}
-              maxLength={120}
+              onBlur={() => setNamaDisentuh(true)}
+              placeholder="mis. Desa Sungai Tuan, Kec. Karang Intan"
+              maxLength={NAMA_MAKS}
               required
+              aria-required="true"
+              aria-invalid={galatNama ? true : undefined}
             />
+            {galatNama ? (
+              <small className="form-error">{galatNama}</small>
+            ) : (
+              <small className="field-hint">Kode dibuat otomatis, mis. K002-07</small>
+            )}
           </label>
 
           <label className="field">
@@ -202,7 +249,7 @@ export default function TitikBaru() {
 
           {pesan && <div className="form-error">{pesan}</div>}
 
-          <button className="btn btn-primary btn-block" disabled={busy}>
+          <button className="btn btn-primary btn-block" disabled={busy || !namaValid}>
             {busy ? (
               <>
                 <Loader2 size={17} className="spin" /> Menganalisis citra…

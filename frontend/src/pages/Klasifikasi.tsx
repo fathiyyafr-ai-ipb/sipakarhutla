@@ -73,10 +73,10 @@ export default function KlasifikasiPage() {
 
           <div className="result-summary">
             <div className="result-class">
-              <KelasBadge kelas={data.kelas} />
+              <KelasBadge kelas={data.kelas_model} />
               <div>
                 <p className="result-label">Kelas keparahan (estimasi model)</p>
-                <h2 style={{ color: WARNA_KELAS[data.kelas] }}>{data.kelas}</h2>
+                <h2 style={{ color: WARNA_KELAS[data.kelas_model] }}>{data.kelas_model}</h2>
               </div>
             </div>
 
@@ -85,7 +85,7 @@ export default function KlasifikasiPage() {
               style={
                 {
                   '--p': `${confidence * 100}%`,
-                  '--ring-color': WARNA_KELAS[data.kelas],
+                  '--ring-color': WARNA_KELAS[data.kelas_model],
                 } as React.CSSProperties
               }
             >
@@ -95,6 +95,13 @@ export default function KlasifikasiPage() {
               </div>
             </div>
           </div>
+
+          {data.dikoreksi && (
+            <Notice tone="warning">
+              Dikoreksi ahli: kelas yang dipakai adalah <strong>{data.kelas}</strong> (model:{' '}
+              {data.kelas_model}).
+            </Notice>
+          )}
 
           {data.status === 'menunggu_ahli' && (
             <Notice tone="warning">

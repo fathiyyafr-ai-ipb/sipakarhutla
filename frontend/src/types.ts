@@ -77,7 +77,10 @@ export interface TitikRingkas {
   insiden_id: number
   insiden: string
   klasifikasi_id: number
+  /** Kelas efektif: keputusan ahli terakhir bila ada, selain itu kelas model. */
   kelas: Kelas
+  kelas_model: Kelas
+  dikoreksi: boolean
   keyakinan: number
   status: StatusKlasifikasi
   label_referensi: Kelas
@@ -92,6 +95,8 @@ export interface TitikTerbaru {
   lon: number
   insiden: string
   kelas: Kelas
+  kelas_model: Kelas
+  dikoreksi: boolean
   keyakinan: number
   status: StatusKlasifikasi
 }
@@ -152,6 +157,8 @@ export interface DetailTitik {
   tahun: number
   klasifikasi_id: number
   kelas: Kelas
+  kelas_model: Kelas
+  dikoreksi: boolean
   probabilitas: Record<Kelas, number>
   keyakinan: number
   status: StatusKlasifikasi
@@ -197,9 +204,16 @@ export interface SceneArea extends SceneInfo {
   contoh: { lat: number; lon: number; kode: string } | null
 }
 
+export interface TitikDuplikatDetail {
+  kode: 'titik_duplikat'
+  titik_ada: string
+  jarak_m: number
+}
+
 export interface TitikBaruHasil {
   id: number
   kode: string
+  nama: string
   klasifikasi_id: number
   kelas: Kelas
   keyakinan: number

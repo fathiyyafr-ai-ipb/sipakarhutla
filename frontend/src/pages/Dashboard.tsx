@@ -27,6 +27,7 @@ import { KELAS, WARNA_KELAS } from '../types'
 import InsidenCard from '../components/InsidenCard'
 import {
   ConfidenceBar,
+  DikoreksiTag,
   EmptyState,
   ErrorState,
   KelasBadge,
@@ -272,6 +273,7 @@ export default function Dashboard() {
                       <td>{t.insiden}</td>
                       <td>
                         <KelasBadge kelas={t.kelas} kecil />
+                        {t.dikoreksi && <DikoreksiTag kelasModel={t.kelas_model} />}
                       </td>
                       <td>
                         <ConfidenceBar value={t.keyakinan} kelas={t.kelas} />

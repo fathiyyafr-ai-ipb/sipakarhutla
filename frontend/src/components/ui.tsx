@@ -12,6 +12,15 @@ export function KelasBadge({ kelas, kecil = false }: { kelas: Kelas; kecil?: boo
   )
 }
 
+/** Penanda bahwa kelas yang tampil adalah koreksi ahli, bukan kelas model. */
+export function DikoreksiTag({ kelasModel }: { kelasModel: Kelas }) {
+  return (
+    <span className="badge badge-koreksi badge-kecil" title={`Kelas model: ${kelasModel}`}>
+      dikoreksi ahli
+    </span>
+  )
+}
+
 export function StatusKlasifikasiBadge({ status }: { status: StatusKlasifikasi }) {
   if (status === 'menunggu_ahli')
     return <span className="badge badge-menunggu">Menunggu ahli</span>

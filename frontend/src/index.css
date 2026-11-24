@@ -568,6 +568,19 @@ img {
   border-color: var(--line);
 }
 
+.badge-koreksi {
+  margin-left: 6px;
+  background: var(--amber-soft);
+  color: #7a5310;
+  border-color: rgba(199, 138, 43, 0.3);
+  font-style: italic;
+}
+
+.field .field-wajib {
+  color: var(--rust, #b84a2a);
+  margin-left: 2px;
+}
+
 .badge-soft {
   background: var(--surface-2);
   color: var(--muted);
