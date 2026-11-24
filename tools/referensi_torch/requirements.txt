@@ -1,0 +1,8 @@
+torch
+numpy
+rasterio
+fastapi
+uvicorn
+pillow
+httpx
+pytest

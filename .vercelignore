@@ -1,0 +1,10 @@
+.venv
+node_modules
+__pycache__
+.pytest_cache
+*.pyc
+.git
+frontend/node_modules
+frontend/.vite
+.env
+*.log

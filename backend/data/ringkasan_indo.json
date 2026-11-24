@@ -1,0 +1,90 @@
+{
+ "tabel_model": [
+  {
+   "model": "Mayoritas",
+   "akurasi": 0.621,
+   "macro_F1": 0.255,
+   "recall_Rendah": 1.0,
+   "recall_Sedang": 0.0,
+   "recall_Tinggi": 0.0,
+   "AUC_Tinggi": 0.5
+  },
+  {
+   "model": "Gradient Boosting (warna)",
+   "akurasi": 0.842,
+   "macro_F1": 0.687,
+   "recall_Rendah": 0.865,
+   "recall_Sedang": 0.43,
+   "recall_Tinggi": 0.865,
+   "AUC_Tinggi": 0.966
+  },
+  {
+   "model": "CNN dari nol (data Indonesia)",
+   "akurasi": 0.841,
+   "macro_F1": 0.709,
+   "recall_Rendah": 0.852,
+   "recall_Sedang": 0.626,
+   "recall_Tinggi": 0.855,
+   "AUC_Tinggi": 0.974
+  },
+  {
+   "model": "CNN AS tanpa latih ulang",
+   "akurasi": 0.757,
+   "macro_F1": 0.648,
+   "recall_Rendah": 0.73,
+   "recall_Sedang": 0.681,
+   "recall_Tinggi": 0.822,
+   "AUC_Tinggi": 0.97
+  }
+ ],
+ "ambang": [
+  {
+   "ambang": 0.5,
+   "persen_diputuskan_model": 0.98,
+   "akurasi_diputuskan": 0.851,
+   "macro_F1_diputuskan": 0.718,
+   "recall_Sedang": 0.632,
+   "akurasi_ditunda": 0.379
+  },
+  {
+   "ambang": 0.6,
+   "persen_diputuskan_model": 0.917,
+   "akurasi_diputuskan": 0.877,
+   "macro_F1_diputuskan": 0.738,
+   "recall_Sedang": 0.635,
+   "akurasi_ditunda": 0.451
+  },
+  {
+   "ambang": 0.7,
+   "persen_diputuskan_model": 0.853,
+   "akurasi_diputuskan": 0.9,
+   "macro_F1_diputuskan": 0.753,
+   "recall_Sedang": 0.625,
+   "akurasi_ditunda": 0.5
+  },
+  {
+   "ambang": 0.8,
+   "persen_diputuskan_model": 0.778,
+   "akurasi_diputuskan": 0.928,
+   "macro_F1_diputuskan": 0.777,
+   "recall_Sedang": 0.611,
+   "akurasi_ditunda": 0.538
+  },
+  {
+   "ambang": 0.9,
+   "persen_diputuskan_model": 0.68,
+   "akurasi_diputuskan": 0.959,
+   "macro_F1_diputuskan": 0.792,
+   "recall_Sedang": 0.488,
+   "akurasi_ditunda": 0.592
+  }
+ ],
+ "kejadian": [
+  "K002_2023_A",
+  "K003_2023_B",
+  "K004_2019_A",
+  "K005_2019_B",
+  "K006_2019_C",
+  "K007_2019_D"
+ ]
+}
