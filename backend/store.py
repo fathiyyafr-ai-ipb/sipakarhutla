@@ -1,6 +1,8 @@
 """SQLite: skema, akun demo, dan penyemaian titik dari citra asli."""
 
+import base64
 import hashlib
+import hmac
 import json
 import os
 import random
@@ -267,11 +269,53 @@ def _seed(db):
             )
 
 
+# ---------- HMAC stateless token (tidak butuh DB) ----------
+
+_SECRET_KEY = os.environ.get("SESSION_SECRET", "sipakarhutla-dev-secret-change-in-prod")
+_SESSION_TTL = 7 * 24 * 3600  # 7 hari
+
+
+def buat_token(user_dict: dict) -> str:
+    """Buat signed token dari data user. Tidak menyimpan apapun ke DB."""
+    payload = json.dumps({
+        "id": user_dict["id"],
+        "username": user_dict["username"],
+        "nama": user_dict["nama"],
+        "role": user_dict["role"],
+        "exp": int(time.time()) + _SESSION_TTL,
+    }, ensure_ascii=False, separators=(",", ":"))
+    b64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    tanda = hmac.new(_SECRET_KEY.encode(), b64.encode(), "sha256").hexdigest()
+    return f"{b64}.{tanda}"
+
+
+def verifikasi_token(token: str) -> dict | None:
+    """Verifikasi signed token. Tidak ada query ke DB."""
+    try:
+        b64, tanda = token.rsplit(".", 1)
+    except ValueError:
+        return None
+    expected = hmac.new(_SECRET_KEY.encode(), b64.encode(), "sha256").hexdigest()
+    if not secrets.compare_digest(tanda, expected):
+        return None
+    # padding base64
+    pad = 4 - len(b64) % 4
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(b64 + "=" * pad))
+    except Exception:
+        return None
+    if payload.get("exp", 0) < int(time.time()):
+        return None
+    return payload
+
+
+# ---------- fungsi lama (dipertahankan sebagai no-op agar tidak error) ----------
+
 def buat_sesi(db, user_id):
-    token = secrets.token_urlsafe(32)
-    db.execute("INSERT INTO sessions (token, user_id, dibuat) VALUES (?,?,?)", (token, user_id, sekarang()))
-    return token
+    """Deprecated: gunakan buat_token() sebagai gantinya."""
+    return buat_token({"id": user_id, "username": "", "nama": "", "role": "petugas"})
 
 
 def hapus_sesi(db, token):
-    db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    """Deprecated: token HMAC tidak disimpan di DB, tidak perlu dihapus."""
+    pass

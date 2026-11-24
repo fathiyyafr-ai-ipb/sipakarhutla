@@ -84,21 +84,12 @@ def user_dari(request: Request):
     token = request.cookies.get(COOKIE)
     if not token:
         return None
-    store.ensure_initialized()
-    with store.koneksi() as db:
-        row = db.execute(
-            "SELECT u.id, u.username, u.nama, u.role, s.dibuat FROM sessions s"
-            " JOIN users u ON u.id = s.user_id WHERE s.token = ?",
-            (token,),
-        ).fetchone()
-    if not row:
+    # Stateless HMAC verification — tidak butuh query DB
+    payload = store.verifikasi_token(token)
+    if not payload:
         return None
-    try:
-        if datetime.fromisoformat(row["dibuat"]) + UMUR_SESI < datetime.now():
-            return None
-    except ValueError:
-        return None
-    return dict(row)
+    store.ensure_initialized()  # pastikan DB siap untuk data insiden/titik
+    return payload
 
 
 def wajib_user(request: Request):
@@ -122,7 +113,8 @@ def login(body: LoginBody, response: Response):
         row = db.execute("SELECT * FROM users WHERE username = ?", (body.username.strip(),)).fetchone()
         if not row or not store.cocok_password(body.password, row["password_hash"]):
             raise HTTPException(401, "Nama pengguna atau kata sandi salah.")
-        token = store.buat_sesi(db, row["id"])
+    # Buat stateless HMAC token — tidak disimpan ke DB
+    token = store.buat_token(dict(row))
     response.set_cookie(
         COOKIE, token, max_age=int(UMUR_SESI.total_seconds()), httponly=True, samesite="lax"
     )
@@ -130,12 +122,9 @@ def login(body: LoginBody, response: Response):
 
 
 @app.post("/api/auth/logout")
-def logout(request: Request, response: Response):
-    token = request.cookies.get(COOKIE)
-    if token:
-        with store.koneksi() as db:
-            store.hapus_sesi(db, token)
-    response.delete_cookie(COOKIE)
+def logout(response: Response):
+    # Token HMAC tidak disimpan di DB, cukup hapus cookie
+    response.delete_cookie(COOKIE, samesite="lax")
     return {"ok": True}
 
 
