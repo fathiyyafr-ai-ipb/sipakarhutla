@@ -18,7 +18,14 @@ from .model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch
 import os
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get("SIPAKARHUTLA_DB", str(Path(__file__).resolve().parent / "data" / "sipakarhutla.db")))
+DB_PATH = Path(
+    os.environ.get(
+        "SIPAKARHUTLA_DB",
+        "/tmp/sipakarhutla.db"
+        if os.environ.get("VERCEL")
+        else str(Path(__file__).resolve().parent / "data" / "sipakarhutla.db"),
+    )
+)
 
 SKEMA = """
 CREATE TABLE IF NOT EXISTS users (
