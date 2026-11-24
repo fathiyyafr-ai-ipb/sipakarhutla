@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response as RawResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -56,6 +57,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Sipakarhutla API", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=".*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 _thumb_cache: dict[str, bytes] = {}
 
 
@@ -70,6 +79,7 @@ def user_dari(request: Request):
     token = request.cookies.get(COOKIE)
     if not token:
         return None
+    store.ensure_initialized()
     with store.koneksi() as db:
         row = db.execute(
             "SELECT u.id, u.username, u.nama, u.role, s.dibuat FROM sessions s"
@@ -102,6 +112,7 @@ def wajib_ahli(request: Request):
 
 @app.post("/api/auth/login")
 def login(body: LoginBody, response: Response):
+    store.ensure_initialized()
     with store.koneksi() as db:
         row = db.execute("SELECT * FROM users WHERE username = ?", (body.username.strip(),)).fetchone()
         if not row or not store.cocok_password(body.password, row["password_hash"]):
@@ -536,6 +547,11 @@ def patch(point_id: int, request: Request):
 @app.exception_handler(HTTPException)
 async def http_error(request: Request, exc: HTTPException):
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    return JSONResponse({"detail": f"Kesalahan server: {str(exc)}"}, status_code=500)
 
 
 # ---------- SPA ----------

@@ -111,6 +111,20 @@ def cocok_password(password: str, tersimpan: str):
     return secrets.compare_digest(hash_password(password, bytes.fromhex(salt_hex)), tersimpan)
 
 
+_initialized = False
+
+
+def ensure_initialized():
+    global _initialized
+    if not _initialized:
+        _initialized = True
+        try:
+            init_db()
+        except Exception:
+            _initialized = False
+            raise
+
+
 def init_db():
     with koneksi() as db:
         db.executescript(SKEMA)
