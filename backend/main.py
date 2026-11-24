@@ -12,8 +12,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response as RawRespons
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import scenes, store
-from .model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch, model
+try:
+    from . import scenes, store
+    from .model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch, model
+except ImportError:
+    import scenes
+    import store
+    from model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch, model
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "frontend" / "dist"

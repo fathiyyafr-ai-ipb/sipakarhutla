@@ -12,8 +12,12 @@ from pathlib import Path
 import numpy as np
 import utm
 
-from . import scenes
-from .model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch
+try:
+    from . import scenes
+    from .model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch
+except ImportError:
+    import scenes
+    from model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch
 
 import os
 from pathlib import Path
