@@ -79,7 +79,7 @@ export default function Login() {
         <div className="hero-copy">
           <p className="eyebrow light">Kalimantan · 2019–2023</p>
           <h1>
-            Menilai keparahan kebakaran <em>sebelum</em> api membesar.
+            Menaksir keparahan kebakaran <em>dari citra satelit</em>
           </h1>
           <p className="hero-lead">
             Klasifikasi tingkat keparahan dari citra Sentinel-2, dipadukan dengan verifikasi ahli.
