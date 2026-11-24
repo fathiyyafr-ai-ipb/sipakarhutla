@@ -6,6 +6,7 @@ import type { Kelas, StatusKlasifikasi, TitikRingkas } from '../types'
 import { KELAS } from '../types'
 import {
   ConfidenceBar,
+  DikoreksiTag,
   EmptyState,
   ErrorState,
   KelasBadge,
@@ -145,7 +146,7 @@ export default function TitikPage() {
                   <th>Titik</th>
                   <th>Area</th>
                   <th>Koordinat</th>
-                  <th>Kelas AI</th>
+                  <th>Kelas</th>
                   <th>Keyakinan</th>
                   <th>Status</th>
                   <th aria-label="Aksi" />
@@ -166,6 +167,7 @@ export default function TitikPage() {
                     <td className="mono">{formatKoordinat(t.lat, t.lon)}</td>
                     <td>
                       <KelasBadge kelas={t.kelas} kecil />
+                      {t.dikoreksi && <DikoreksiTag kelasModel={t.kelas_model} />}
                     </td>
                     <td>
                       <ConfidenceBar value={t.keyakinan} kelas={t.kelas} />

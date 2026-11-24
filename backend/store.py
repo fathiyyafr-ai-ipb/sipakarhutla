@@ -21,8 +21,18 @@ except ImportError:
     import scenes
     from model import AMBANG_KEYAKINAN, KELAS, MODEL_NAMA, klasifikasi_patch
 
-import os
-from pathlib import Path
+import math
+import re
+
+DATA_DIR = Path(__file__).resolve().parent / "data"
+NAMA_TITIK_CONTOH = DATA_DIR / "nama_titik_contoh.json"
+
+# Dua titik yang berjarak kurang dari ini (meter) dianggap duplikat.
+JARAK_DUPLIKAT_M = 30
+# Berapa kali pembuatan kode + INSERT diulang bila bentrok UNIQUE pada points.kode.
+MAKS_PERCOBAAN_KODE = 3
+# Awalan kode untuk titik yang tidak terkait kejadian mana pun.
+AWALAN_TANPA_KEJADIAN = "T"
 
 DB_PATH = Path(
     os.environ.get(
@@ -182,6 +192,7 @@ def _kandidat(scene, rng, per_kelas=4, maks_percobaan=4000):
 
 def _seed(db):
     rng = random.Random(20231123)
+    nama_contoh = _muat_nama_contoh()
     for scene in scenes.SCENES.values():
         kandidat = _kandidat(scene, rng)
         if not kandidat:
@@ -225,32 +236,135 @@ def _seed(db):
             ),
         ).lastrowid
 
-        for urutan, (idx, titik) in enumerate(pilihan, start=1):
-            hasil = prediksi[idx]
+        for idx, titik in pilihan:
             lat, lon = utm.to_latlon(
                 scene.x0 + (titik["kolom"] + 0.5) * scene.pixel,
                 scene.y0 - (titik["baris"] + 0.5) * scene.pixel,
                 scene.zona,
                 northern=scene.utara,
             )
-            kode = f"{scene.kode}-{urutan:02d}"
+            simpan_titik(
+                db,
+                insiden_id=insiden_id,
+                kode_insiden=scene.kode,
+                nama=lambda kode: nama_contoh.get(kode, "").strip() or f"Titik contoh {kode}",
+                lat=round(lat, 6),
+                lon=round(lon, 6),
+                scene=scene.kode,
+                catatan="Titik contoh pada citra "
+                f"{scene.kode}; label referensi dNBR: {KELAS[titik['label_index']]}.",
+                hasil=prediksi[idx],
+                titik=titik,
+            )
+
+
+def _muat_nama_contoh():
+    """Nama daerah titik seed (kode -> nama), diisi manual. Tanpa geocoding."""
+    try:
+        data = json.loads(NAMA_TITIK_CONTOH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k): v for k, v in data.items() if isinstance(v, str)}
+
+
+# ---------- kode titik & duplikat ----------
+
+class TitikDuplikat(Exception):
+    def __init__(self, titik_ada: str, jarak_m: float):
+        super().__init__(f"Titik berdekatan dengan {titik_ada} ({jarak_m} m).")
+        self.titik_ada = titik_ada
+        self.jarak_m = jarak_m
+
+
+def kode_berikutnya(db, insiden_id, kode_insiden):
+    """Kode titik berikutnya: '<kode_insiden>-NN', NN = urutan terbesar + 1.
+
+    Memakai angka terbesar (bukan COUNT) supaya tidak bentrok bila ada titik yang
+    dihapus. Titik tanpa kejadian memakai awalan 'T' dengan urutan sendiri.
+    """
+    awalan = kode_insiden if insiden_id is not None and kode_insiden else AWALAN_TANPA_KEJADIAN
+    pola = re.compile(rf"^{re.escape(awalan)}-(\d+)$")
+    terbesar = 0
+    for (kode,) in db.execute(
+        "SELECT kode FROM points WHERE kode LIKE ? ESCAPE '\\'",
+        (awalan.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "-%",),
+    ):
+        cocok = pola.match(kode)
+        if cocok:
+            terbesar = max(terbesar, int(cocok.group(1)))
+    return f"{awalan}-{terbesar + 1:02d}"
+
+
+def jarak_m(lat1, lon1, lat2, lon2):
+    """Jarak haversine dalam meter."""
+    r = 6_371_008.8
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def cari_titik_dekat(db, lat, lon, batas_m=None):
+    """Titik terdekat dalam jarak JARAK_DUPLIKAT_M, atau None.
+
+    Hasil: {"id", "kode", "jarak_m"}.
+    """
+    batas_m = JARAK_DUPLIKAT_M if batas_m is None else batas_m
+    # Saring kasar dengan kotak lintang/bujur, lalu hitung haversine.
+    dlat = batas_m / 111_000 * 1.5
+    dlon = dlat / max(math.cos(math.radians(lat)), 0.01)
+    terdekat = None
+    for row in db.execute(
+        "SELECT id, kode, lat, lon FROM points"
+        " WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?",
+        (lat - dlat, lat + dlat, lon - dlon, lon + dlon),
+    ):
+        d = jarak_m(lat, lon, row["lat"], row["lon"])
+        if d < batas_m and (terdekat is None or d < terdekat["jarak_m"]):
+            terdekat = {"id": row["id"], "kode": row["kode"], "jarak_m": d}
+    if terdekat:
+        terdekat["jarak_m"] = round(terdekat["jarak_m"], 1)
+    return terdekat
+
+
+def simpan_titik(
+    db, *, insiden_id, kode_insiden, nama, lat, lon, scene, catatan, hasil, titik, cek_duplikat=False
+):
+    """Buat kode + INSERT titik dan klasifikasinya secara atomik.
+
+    `nama` boleh string atau fungsi kode -> nama. Bila koneksi belum dalam
+    transaksi, dipakai BEGIN IMMEDIATE (kunci tulis diambil sebelum kode dihitung);
+    bila sudah (mis. saat seed), dipakai SAVEPOINT. IntegrityError pada points.kode
+    diulang paling banyak MAKS_PERCOBAAN_KODE kali.
+
+    Hasil: (point_id, kode, klasifikasi_id, status).
+    """
+    milik_sendiri = not db.in_transaction
+    for percobaan in range(1, MAKS_PERCOBAAN_KODE + 1):
+        db.execute("BEGIN IMMEDIATE" if milik_sendiri else "SAVEPOINT simpan_titik")
+        try:
+            if cek_duplikat:
+                dekat = cari_titik_dekat(db, lat, lon)
+                if dekat:
+                    raise TitikDuplikat(dekat["kode"], dekat["jarak_m"])
+            kode = kode_berikutnya(db, insiden_id, kode_insiden)
             point_id = db.execute(
                 "INSERT INTO points (insiden_id, kode, nama, lat, lon, scene, catatan, dibuat)"
                 " VALUES (?,?,?,?,?,?,?,?)",
                 (
                     insiden_id,
                     kode,
-                    f"Titik {kode}",
-                    round(lat, 6),
-                    round(lon, 6),
-                    scene.kode,
-                    "Titik contoh pada citra "
-                    f"{scene.kode}; label referensi dNBR: {KELAS[titik['label_index']]}.",
+                    nama(kode) if callable(nama) else nama,
+                    lat,
+                    lon,
+                    scene,
+                    catatan,
                     sekarang(),
                 ),
             ).lastrowid
             status = "menunggu_ahli" if hasil["keyakinan"] < AMBANG_KEYAKINAN else "terverifikasi_model"
-            db.execute(
+            klasifikasi_id = db.execute(
                 "INSERT INTO classifications (point_id, kelas, probabilitas, keyakinan, status,"
                 " label_referensi, dnbr, modis, model, dibuat)"
                 " VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -266,7 +380,22 @@ def _seed(db):
                     MODEL_NAMA,
                     sekarang(),
                 ),
-            )
+            ).lastrowid
+        except BaseException as exc:
+            if milik_sendiri:
+                db.rollback()
+            else:
+                db.execute("ROLLBACK TO simpan_titik")
+                db.execute("RELEASE simpan_titik")
+            bentrok_kode = isinstance(exc, sqlite3.IntegrityError) and "points.kode" in str(exc)
+            if bentrok_kode and percobaan < MAKS_PERCOBAAN_KODE:
+                continue
+            raise
+        if milik_sendiri:
+            db.commit()
+        else:
+            db.execute("RELEASE simpan_titik")
+        return point_id, kode, klasifikasi_id, status
 
 
 # ---------- HMAC stateless token (tidak butuh DB) ----------

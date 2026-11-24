@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response as RawResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 try:
     from . import scenes, store
@@ -140,6 +140,24 @@ def me(request: Request):
 
 STATUS_INSIDEN = ("Siaga", "Waspada", "Pantau")
 
+# Kelas efektif: keputusan ahli terakhir bila ada, selain itu kelas model.
+# classifications.kelas tidak pernah ditimpa.
+KELAS_EFEKTIF = (
+    "COALESCE((SELECT v.kelas_final FROM verifications v WHERE v.classification_id = c.id"
+    " ORDER BY v.id DESC LIMIT 1), c.kelas)"
+)
+# Kolom kelas untuk data titik: kelas (efektif), kelas_model, dikoreksi.
+KOLOM_KELAS = (
+    f"{KELAS_EFEKTIF} AS kelas, c.kelas AS kelas_model,"
+    f" ({KELAS_EFEKTIF} <> c.kelas) AS dikoreksi"
+)
+
+
+def _dengan_bool(item: dict) -> dict:
+    if "dikoreksi" in item:
+        item["dikoreksi"] = bool(item["dikoreksi"])
+    return item
+
 
 def _status(tinggi, sedang):
     if tinggi:
@@ -152,12 +170,13 @@ def _status(tinggi, sedang):
 def _insiden_rows(db, where="", params=()):
     rows = db.execute(
         "SELECT i.*, COUNT(p.id) AS titik,"
-        " COALESCE(SUM(CASE WHEN c.kelas = 'Tinggi' THEN 1 ELSE 0 END), 0) AS tinggi,"
-        " COALESCE(SUM(CASE WHEN c.kelas = 'Sedang' THEN 1 ELSE 0 END), 0) AS sedang,"
-        " COALESCE(SUM(CASE WHEN c.kelas = 'Rendah' THEN 1 ELSE 0 END), 0) AS rendah"
+        " COALESCE(SUM(CASE WHEN ke.kelas = 'Tinggi' THEN 1 ELSE 0 END), 0) AS tinggi,"
+        " COALESCE(SUM(CASE WHEN ke.kelas = 'Sedang' THEN 1 ELSE 0 END), 0) AS sedang,"
+        " COALESCE(SUM(CASE WHEN ke.kelas = 'Rendah' THEN 1 ELSE 0 END), 0) AS rendah"
         " FROM incidents i"
         " LEFT JOIN points p ON p.insiden_id = i.id"
-        " LEFT JOIN classifications c ON c.point_id = p.id"
+        f" LEFT JOIN (SELECT c.point_id, {KELAS_EFEKTIF} AS kelas FROM classifications c) ke"
+        " ON ke.point_id = p.id"
         f" {where} GROUP BY i.id ORDER BY i.kode",
         params,
     ).fetchall()
@@ -183,19 +202,21 @@ def dashboard(request: Request):
         terverifikasi = db.execute(
             "SELECT COUNT(*) FROM classifications WHERE status = 'terverifikasi'"
         ).fetchone()[0]
-        distribusi = [
-            {"kelas": k, "jumlah": db.execute(
-                "SELECT COUNT(*) FROM classifications WHERE kelas = ?", (k,)
-            ).fetchone()[0]}
-            for k in KELAS
-        ]
+        hitung = {
+            r["kelas"]: r["jumlah"]
+            for r in db.execute(
+                f"SELECT {KELAS_EFEKTIF} AS kelas, COUNT(*) AS jumlah FROM classifications c GROUP BY 1"
+            )
+        }
+        distribusi = [{"kelas": k, "jumlah": hitung.get(k, 0)} for k in KELAS]
         per_insiden = db.execute(
-            "SELECT i.kode, c.kelas, COUNT(*) AS jumlah FROM classifications c"
+            f"SELECT i.kode, {KELAS_EFEKTIF} AS kelas, COUNT(*) AS jumlah FROM classifications c"
             " JOIN points p ON p.id = c.point_id JOIN incidents i ON i.id = p.insiden_id"
-            " GROUP BY i.kode, c.kelas"
+            " GROUP BY 1, 2"
         ).fetchall()
         terbaru = db.execute(
-            "SELECT p.id, p.kode, p.nama, p.lat, p.lon, i.kode AS insiden, c.kelas, c.keyakinan, c.status"
+            "SELECT p.id, p.kode, p.nama, p.lat, p.lon, i.kode AS insiden,"
+            f" {KOLOM_KELAS}, c.keyakinan, c.status"
             " FROM points p JOIN incidents i ON i.id = p.insiden_id"
             " JOIN classifications c ON c.point_id = p.id"
             " ORDER BY p.id DESC LIMIT 6"
@@ -216,7 +237,7 @@ def dashboard(request: Request):
         "insiden": insiden,
         "distribusi": distribusi,
         "sebaran": list(sebaran.values()),
-        "terbaru": [dict(r) for r in terbaru],
+        "terbaru": [_dengan_bool(dict(r)) for r in terbaru],
         "model": MODEL_INFO,
     }
 
@@ -245,7 +266,7 @@ def detail_insiden(insiden_id: int, request: Request):
         if not insiden:
             raise HTTPException(404, "Kejadian tidak ditemukan.")
         titik = db.execute(
-            "SELECT p.*, c.id AS klasifikasi_id, c.kelas, c.keyakinan, c.probabilitas, c.status,"
+            f"SELECT p.*, c.id AS klasifikasi_id, {KOLOM_KELAS}, c.keyakinan, c.probabilitas, c.status,"
             " c.label_referensi, c.dnbr, c.modis, c.model"
             " FROM points p JOIN classifications c ON c.point_id = p.id"
             " WHERE p.insiden_id = ? ORDER BY p.kode",
@@ -258,7 +279,7 @@ def detail_insiden(insiden_id: int, request: Request):
     )
     data["titik"] = []
     for t in titik:
-        item = dict(t)
+        item = _dengan_bool(dict(t))
         item["probabilitas"] = json.loads(t["probabilitas"])
         data["titik"].append(item)
     data["distribusi"] = [
@@ -273,7 +294,7 @@ def _titik_rows(db, where, params):
     rows = db.execute(
         "SELECT p.id, p.kode, p.nama, p.lat, p.lon, p.scene, p.dibuat,"
         " i.id AS insiden_id, i.kode AS insiden,"
-        " c.id AS klasifikasi_id, c.kelas, c.keyakinan, c.status, c.label_referensi, c.dnbr"
+        f" c.id AS klasifikasi_id, {KOLOM_KELAS}, c.keyakinan, c.status, c.label_referensi, c.dnbr"
         " FROM points p JOIN incidents i ON i.id = p.insiden_id"
         " JOIN classifications c ON c.point_id = p.id"
         f" {where} ORDER BY p.kode",
@@ -281,7 +302,7 @@ def _titik_rows(db, where, params):
     ).fetchall()
     return [
         {
-            **dict(r),
+            **_dengan_bool(dict(r)),
             "lat": round(r["lat"], 5),
             "lon": round(r["lon"], 5),
             "keyakinan": round(r["keyakinan"], 4),
@@ -311,7 +332,7 @@ def detail_titik(point_id: int, request: Request):
         row = db.execute(
             "SELECT p.*, i.kode AS insiden, i.id AS insiden_id, i.nama AS insiden_nama,"
             " i.provinsi, i.tahun,"
-            " c.id AS klasifikasi_id, c.kelas, c.probabilitas, c.keyakinan, c.status,"
+            f" c.id AS klasifikasi_id, {KOLOM_KELAS}, c.probabilitas, c.keyakinan, c.status,"
             " c.label_referensi, c.dnbr, c.modis, c.model, c.dibuat AS diklasifikasi"
             " FROM points p JOIN incidents i ON i.id = p.insiden_id"
             " JOIN classifications c ON c.point_id = p.id WHERE p.id = ?",
@@ -324,7 +345,7 @@ def detail_titik(point_id: int, request: Request):
             " WHERE v.classification_id = ? ORDER BY v.id DESC",
             (row["klasifikasi_id"],),
         ).fetchall()
-    data = dict(row)
+    data = _dengan_bool(dict(row))
     data["probabilitas"] = json.loads(row["probabilitas"])
     data["lat"] = round(row["lat"], 5)
     data["lon"] = round(row["lon"], 5)
@@ -334,11 +355,20 @@ def detail_titik(point_id: int, request: Request):
 
 
 class TitikBaru(BaseModel):
-    nama: str = Field(min_length=3, max_length=120)
+    # Nama lokasi (desa/kecamatan), wajib. Kode titik selalu dibuat server.
+    nama: str = Field(max_length=120)
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
     insiden_id: int | None = None
     catatan: str = Field(default="", max_length=500)
+
+    @field_validator("nama")
+    @classmethod
+    def rapikan_nama(cls, nilai: str) -> str:
+        nilai = " ".join(nilai.split())
+        if len(nilai) < 3:
+            raise ValueError("Nama lokasi minimal 3 karakter.")
+        return nilai
 
 
 @app.post("/api/titik")
@@ -366,57 +396,50 @@ def tambah_titik(body: TitikBaru, request: Request):
                     "Koordinat berada di luar enam area citra yang tersedia "
                     "(Kalimantan, 2019/2023).",
                 )
+            insiden = db.execute("SELECT * FROM incidents WHERE scene = ?", (scene.kode,)).fetchone()
+            if not insiden:
+                # points.insiden_id NOT NULL: titik tanpa kejadian belum bisa disimpan.
+                raise HTTPException(400, f"Belum ada kejadian untuk area citra {scene.kode}.")
+        # Cek duplikat sebelum ekstraksi & inferensi supaya tidak membuang waktu.
+        dekat = store.cari_titik_dekat(db, body.lat, body.lon)
+        if dekat:
+            raise _galat_duplikat(dekat["kode"], dekat["jarak_m"])
         try:
             titik = scenes.ekstrak(scene, *posisi)
         except (scenes.TitikDiLuar, scenes.KualitasRendah) as exc:
             raise HTTPException(400, str(exc)) from exc
         hasil = klasifikasi_patch([titik["patch"]])[0]
-        jumlah = db.execute("SELECT COUNT(*) FROM points").fetchone()[0]
-        kode = f"T-{jumlah + 1:03d}"
-        insiden_id = body.insiden_id or db.execute(
-            "SELECT id FROM incidents WHERE scene = ?", (scene.kode,)
-        ).fetchone()["id"]
-        point_id = db.execute(
-            "INSERT INTO points (insiden_id, kode, nama, lat, lon, scene, catatan, dibuat)"
-            " VALUES (?,?,?,?,?,?,?,?)",
-            (
-                insiden_id,
-                kode,
-                body.nama.strip(),
-                body.lat,
-                body.lon,
-                scene.kode,
-                body.catatan.strip() or f"Ditambahkan oleh {user['nama']}.",
-                store.sekarang(),
-            ),
-        ).lastrowid
-        status = "menunggu_ahli" if hasil["keyakinan"] < AMBANG_KEYAKINAN else "terverifikasi_model"
-        klasifikasi_id = db.execute(
-            "INSERT INTO classifications (point_id, kelas, probabilitas, keyakinan, status,"
-            " label_referensi, dnbr, modis, model, dibuat)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (
-                point_id,
-                hasil["kelas"],
-                json.dumps(hasil["probabilitas"]),
-                hasil["keyakinan"],
-                status,
-                KELAS[titik["label_index"]],
-                titik["dnbr"],
-                1 if titik["modis"] else 0,
-                MODEL_NAMA,
-                store.sekarang(),
-            ),
-        ).lastrowid
+        try:
+            point_id, kode, klasifikasi_id, status = store.simpan_titik(
+                db,
+                insiden_id=insiden["id"],
+                kode_insiden=insiden["kode"],
+                nama=body.nama,
+                lat=body.lat,
+                lon=body.lon,
+                scene=scene.kode,
+                catatan=body.catatan.strip() or f"Ditambahkan oleh {user['nama']}.",
+                hasil=hasil,
+                titik=titik,
+                # Diulang di dalam kunci tulis untuk menutup celah balapan.
+                cek_duplikat=True,
+            )
+        except store.TitikDuplikat as exc:
+            raise _galat_duplikat(exc.titik_ada, exc.jarak_m) from exc
     return {
         "id": point_id,
         "kode": kode,
         "klasifikasi_id": klasifikasi_id,
+        "nama": body.nama,
         "kelas": hasil["kelas"],
         "keyakinan": hasil["keyakinan"],
         "status": status,
         "scene": scene.kode,
     }
+
+
+def _galat_duplikat(titik_ada, jarak):
+    return HTTPException(409, {"kode": "titik_duplikat", "titik_ada": titik_ada, "jarak_m": jarak})
 
 
 @app.get("/api/verifikasi")
