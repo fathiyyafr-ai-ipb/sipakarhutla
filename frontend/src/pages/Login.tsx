@@ -86,20 +86,6 @@ export default function Login() {
             Satu alur kerja untuk memantau titik panas, meninjau estimasi model, dan menetapkan
             keputusan akhir.
           </p>
-          <div className="hero-stats">
-            <div>
-              <strong>84,1%</strong>
-              <span>akurasi uji antar-kejadian</span>
-            </div>
-            <div>
-              <strong>6</strong>
-              <span>area citra Kalimantan</span>
-            </div>
-            <div>
-              <strong>60%</strong>
-              <span>ambang keyakinan untuk ahli</span>
-            </div>
-          </div>
         </div>
 
         <p className="hero-foot">
